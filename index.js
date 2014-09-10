@@ -40,7 +40,7 @@ async.waterfall([
     ncc.validateLogin(cookieJar, function (data) {
       if(data == null) {
         console.log("Logging in...");
-        //callback(null, false);
+        callback(null, false);
       } else {
         console.log("Already logged in with ID " + data);
         userID = data;
