@@ -1,0 +1,5 @@
+config.json
+cookie.json
+node_modules/
+frontend/
+*~
