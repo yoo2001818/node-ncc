@@ -60,13 +60,6 @@ async.waterfall([
         return;
       }
       console.log("Logged on!");
-      ncc.validateLogin(data, function (data) {
-        if(data == null) {
-          console.log("Nope");
-        } else {
-          console.log("Already logged in with ID " + data);
-        }
-      });
       cookieJar = data;
       userID = config.id;
       /// save cookies
