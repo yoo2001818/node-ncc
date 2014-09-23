@@ -7,6 +7,7 @@ var querystring = require('querystring');
 var EventEmitter = require('events').EventEmitter;
 var util = require('util');
 var FormData = require('form-data');
+var KeepAliveAgent = require('keep-alive-agent');
 
 var enums = require('./ncc-enum');
 
@@ -105,12 +106,13 @@ module.exports.login = function (userID, password, callback) {
       };
       request(options, function (error, response, body) {
         if (!error && response.statusCode == 200) {
-          var cookieText = cookieJar.getCookieString('https://nid.naver.com/');
-          if(cookieText.indexOf("NID_AUT") != -1) {
-            iCallback(null, cookieJar);
-          } else {
-            iCallback("Invalid ID or password");
-          }
+          cookieJar.getCookieString('https://nid.naver.com/', {}, function(err, cookieText) {
+            if(cookieText.indexOf("NID_AUT") != -1) {
+              iCallback(null, cookieJar);
+            } else {
+              iCallback("Invalid ID or password");
+            }
+          });
         } else {
           iCallback(error);
         }
@@ -135,7 +137,9 @@ var Session = function (uid, cookieJar) {
     headers: {
       'Content-Type': 'application/json; charset=UTF-8',
       'Referer': enums.CHAT_HOME_URL
-    }
+    },
+    pool: new KeepAliveAgent.Secure(),
+    timeout: (enums.CONFIG.POLLING_TIMEOUT * 1000)
   });
 }
 
@@ -160,7 +164,7 @@ Session.prototype.requestChatRoomList = function (callback) {
   };
   this.sendCommand(enums.COMMAND_TYPE.GetRoomList, body, function (error, data) {
     if(!!error) {
-      callback(error);
+      callback(error, data);
       return;
     }
     var body = data.bdy.roomList;
@@ -183,19 +187,21 @@ Session.prototype.requestChatRoomList = function (callback) {
     callback(null, self);
   });
 }
-Session.prototype.requestChatRoomInfo = function (chatRoom, callback) {
+Session.prototype.requestChatRoomInfo = function (chatRoom, callback, fresh) {
   var body = {
     cafeId: chatRoom.cafeId,
     roomId: chatRoom.roomId,
     updateTimeSec: 0,
     size: 20
   };
+  var self = this;
   this.sendCommand(enums.COMMAND_TYPE.SyncRoom, body, function (error, data) {
     if(!!error) {
-      callback(error);
+      if(callback) callback(error, data);
       return;
     }
     var body = data.bdy;
+    chatRoom.isFetched = true;
     chatRoom.cafeName = body.cafeName;
     chatRoom.roomName = body.roomName;
     chatRoom.roomType = body.roomType;
@@ -210,7 +216,17 @@ Session.prototype.requestChatRoomInfo = function (chatRoom, callback) {
       var member = new Member(chatRoom, memberEntry.memberId, memberEntry.nickname, memberEntry.memberProfileImageUrl.web);
       chatRoom.memberList.push(member);
     }
-    callback(null, chatRoom);
+    if(fresh) {
+      var msgList = body.msgList;
+      chatRoom.lastMessage = new Message(chatRoom, 0, body.lastMsgSn, null, null, null, null);
+      for(var key in msgList) {
+        var messageItem = msgList[key];
+        messageItem.cafeId = chatRoom.cafeId;
+        messageItem.roomId = chatRoom.roomId;
+        self.handleNotification(messageItem);
+      }
+    }
+    if(callback) callback(null, chatRoom, body.msgList, body.lastMsgSn);
   });
 }
 Session.prototype.requestRoomMemberList = function (chatRoom, callback) {
@@ -220,7 +236,7 @@ Session.prototype.requestRoomMemberList = function (chatRoom, callback) {
   };
   this.sendCommand(enums.COMMAND_TYPE.SyncRoom, body, function (error, data) {
     if(!!error) {
-      callback(error);
+      callback(error, data);
       return;
     }
     var body = data.bdy;
@@ -240,7 +256,7 @@ Session.prototype.requestCafeList = function (callback) {
   var body = {};
   this.sendCommand(enums.COMMAND_TYPE.FindMyCafeList, body, function (error, data) {
     if(!!error) {
-      callback(error);
+      callback(error, data);
       return;
     }
     var body = data.bdy;
@@ -255,12 +271,72 @@ Session.prototype.requestOpenRoomList = function (cafeId, page, callback) {
   };
   this.sendCommand(enums.COMMAND_TYPE.FindOpenRoomList, body, function (error, data) {
     if(!!error) {
-      callback(error);
+      callback(error, data);
       return;
     }
     var body = data.bdy;
     callback(null, body);
   });
+}
+Session.prototype.requestSyncMessage = function (chatRoom, lastMsgSn, callback) {
+  var body = {
+    cafeId: chatRoom.cafeId,
+    roomId: chatRoom.roomId,
+    lastMsgSn: lastMsgSn,
+    size: 100
+  };
+  var self = this;
+  this.sendCommand(enums.COMMAND_TYPE.SyncMsg, body, function (error, data) {
+    if(!!error) {
+      if(error.code == enums.NOT_FOUND_ROOM) {
+        delete chatRoom;
+      }
+      callback(error);
+      return;
+    }
+    var body = data.bdy.msgList;
+    chatRoom.lastMessage = new Message(chatRoom, 0, data.bdy.lastMsgSn, null, null, null, null);
+    for(var key in body) {
+      var messageItem = body[key];
+      messageItem.cafeId = chatRoom.cafeId;
+      messageItem.roomId = chatRoom.roomId;
+      self.handleNotification(messageItem);
+    }
+    callback(null, body);
+  });
+}
+Session.prototype.requestGetMessage = function (chatRoom, from, to, callback) {
+  var body = {
+    cafeId: chatRoom.cafeId,
+    roomId: chatRoom.roomId,
+    startMsgSn: from,
+    endMsgSn: to
+  };
+  this.sendCommand(enums.COMMAND_TYPE.GetMsg, body, function (error, data) {
+    if(!!error) {
+      callback(error);
+      return;
+    }
+    var body = data.bdy.msgList;
+    callback(null, body);
+  });
+}
+Session.prototype.requestDeleteRoom = function (chatRoom, callback) {
+  var body = {
+    cafeId: chatRoom.cafeId,
+    roomId: chatRoom.roomId
+  };
+  this.sendCommand(enums.COMMAND_TYPE.DeleteRoom, body, function (error, data) {
+    if(!!error) {
+      if(callback) callback(error, data);
+      return;
+    }
+    delete chatRoom;
+    if(callback) callback(null, data);
+  });
+}
+Session.prototype.getMyself = function (chatRoom) {
+  return chatRoom.getMemberById(this.uid);
 }
 Session.prototype.connect = function (callback) {
   var self = this;
@@ -295,24 +371,27 @@ Session.prototype.connect = function (callback) {
           return;
         }
       }
-      self.poll();
+      setTimeout(function (){
+        self.poll();
+      }, enums.CONFIG.POLL_SLEEP_DELAY);
     });
   }
 }
 Session.prototype.handlePoll = function (message) {
+  var self = this;
   //console.log(JSON.stringify(message));
   if(message.retCode == enums.RESULT_CODE.CMD_SUCCESS) {
     var messageList = message.bdy;
     for(var key in messageList) {
       var messagePacket = messageList[key];
       this.emit('notification', messagePacket);
-      this.handleNotification(messagePacket);
+      this.handleNotification(messagePacket.bdy, messagePacket.cmd);
     }
   }
-  this.poll();
+  self.poll();
 }
-Session.prototype.handleNotification = function (message) {
-  var body = message.bdy;
+Session.prototype.handleNotification = function (body, cmd) {
+  var self = this;
   var chatRoom = this.getChatRoom(body.cafeId, body.roomId);
   // refresh user information
   var member = chatRoom.getMemberById(body.senderId);
@@ -323,10 +402,30 @@ Session.prototype.handleNotification = function (message) {
   member.id = body.senderId;
   member.nickname = body.senderNickname;
   member.profileUrl = body.senderProfileUrl.web;
-  if(message.cmd == enums.NOTI_TYPE.Msg) {
-    this.emit('raw_message', message.bdy);
+  if(chatRoom.syncingMessage && !(cmd == null || cmd == undefined)) {
+    console.log('syncing interrupt');
+    return;
+  }
+  if(cmd == enums.NOTI_TYPE.Msg || cmd == null || cmd == undefined) {
+    this.emit('raw_message', body);
     // process message
     var message = new Message(chatRoom, body.msgType, body.msgSn, body.msgTimeSec, body.msgId, member, body.msg);
+    var prevMessage = chatRoom.lastMessage;
+    chatRoom.lastMessage = message;
+    if(prevMessage) {
+      var messageDiff = message.serial - prevMessage.serial;
+      if(messageDiff > 1) {
+        console.log('requesting sync: missing chat message');
+        chatRoom.syncingMessage = true;
+        this.requestSyncMessage(chatRoom, prevMessage.serial, function (error, data) {
+          chatRoom.syncingMessage = false;
+        });
+        return;
+      }
+    }
+    if(message.type == enums.MSG_TYPE.Normal) {
+      this.emit('text_message', message);
+    }
     if(message.type == enums.MSG_TYPE.Image) {
       var data = JSON.parse(message.message);
       message.data = data;
@@ -339,29 +438,126 @@ Session.prototype.handleNotification = function (message) {
       message.message = 'Sticker: '+data.stickerId;
       this.emit('sticker_message', message);
     }
-    if(message.type == enums.MSG_TYPE.Normal) {
-      this.emit('text_message', message);
+    if(message.type == enums.MSG_TYPE.Invite) {
+      var data = JSON.parse(message.message);
+      message.data = data;
+      message.message = 'Invited: '+data.sender.nickName+' -> '+data.target.map(function(a){return a.nickName}).join(',');
+      this.emit('announce_message', message);
+    }
+    if(message.type == enums.MSG_TYPE.Leave) {
+      var data = JSON.parse(message.message);
+      message.data = data;
+      message.message = 'Left: '+data.sender.nickName;
+      this.emit('announce_message', message);
+    }
+    if(message.type == enums.MSG_TYPE.JoinRoom) {
+      var data = JSON.parse(message.message);
+      message.data = data;
+      message.message = 'Joined: '+data.sender.nickName;
+      this.emit('announce_message', message);
+    }
+    if(message.type == enums.MSG_TYPE.ChangeRoomName) {
+      var data = JSON.parse(message.message);
+      message.data = data;
+      message.message = 'RoomName Change: '+data.actionItem;
+      this.emit('announce_message', message);
+      chatRoom.roomName = data.actionItem;
+    }
+    if(message.type == enums.MSG_TYPE.ChangeMasterId) {
+      var data = JSON.parse(message.message);
+      message.data = data;
+      message.message = 'Master Change: '+data.actionItem.nickName;
+      this.emit('announce_message', message);
+      chatRoom.masterUserId = data.actionItem.id;
+    }
+    if(message.type == enums.MSG_TYPE.RejectMember) {
+      var data = JSON.parse(message.message);
+      message.data = data;
+      message.message = 'Blocked: '+data.actionItem.nickName;
+      this.emit('announce_message', message);
+    }
+    if(message.type == enums.MSG_TYPE.OpenRoomCreateGreeting) {
+      console.log(JSON.stringify(body));
+      // todo
     }
     this.emit('all_message', message);
-  } else if(message.cmd == enums.NOTI_TYPE.JoinRoom) {
+  } else if(cmd == enums.NOTI_TYPE.ClosedOpenroom) {
+    // room exploded
+  } else {
+    if(cmd == enums.NOTI_TYPE.Invited) {
+      if(body.isToInvitee) {
+        //WORKAROUND: invite message doesn't show if you're invited
+        chatRoom.syncingMessage = true;
+        var self = this;
+        this.requestChatRoomInfo(chatRoom, function (error, data2, msgList, lastMsgSn) {
+          //Create fake object
+          var message = new Message(chatRoom, enums.MSG_TYPE.Invite, lastMsgSn - msgList.length, new Date().getTime()/1000, new Date().getTime(), member, 'Invited: '+member.nickname+' -> '+self.getMyself(chatRoom).nickname);
+          message.data = {
+            sender: {
+              id: member.id,
+              nickName: member.nickname
+            },
+            target: [{
+              id: self.getMyself(chatRoom).id,
+              nickName: self.getMyself(chatRoom).nickname
+            }]
+          };
+          self.emit('announce_message', message);
+          self.emit('all_message', message);
+          chatRoom.lastMessage = new Message(chatRoom, 0, lastMsgSn, null, null, null, null);
+          for(var key in msgList) {
+            var messageItem = msgList[key];
+            messageItem.cafeId = chatRoom.cafeId;
+            messageItem.roomId = chatRoom.roomId;
+            self.handleNotification(messageItem);
+          }
+          chatRoom.syncingMessage = false;
+        }, false);
+        return;
+      }
+      console.log(JSON.stringify(body));
+    }
+    if(chatRoom.lastMessage) {
+      console.log('requesting sync');
+      var prevMessage = chatRoom.lastMessage;
+      chatRoom.syncingMessage = true;
+      this.requestSyncMessage(chatRoom, prevMessage.serial, function (error, data) {
+        chatRoom.syncingMessage = false;
+      });
+    } else {
+      console.log('downloading room information');
+      chatRoom.syncingMessage = true;
+      var self = this;
+      this.requestChatRoomInfo(chatRoom, function (error, data) {
+        self.requestGetMessage(chatRoom, chatRoom.lastMessage.serial - 60, chatRoom.lastMessage.serial, function (error, data) {
+          console.log(JSON.stringify(data));
+        });
+        chatRoom.syncingMessage = false;
+      }, true);
+    }
+  }
+  
+  /* else if(cmd == enums.NOTI_TYPE.JoinRoom) {
     this.emit('join', member);
     this.emit('announce', 'join', member);
-  } else if(message.cmd == enums.NOTI_TYPE.DeleteRoom) {
+  } else if(cmd == enums.NOTI_TYPE.DeleteRoom) {
     this.emit('quit', member);
     this.emit('announce', 'quit', member);
-  } else if(message.cmd == enums.NOTI_TYPE.Invited) {
+  } else if(cmd == enums.NOTI_TYPE.Invited) {
     if(body.isToInvitee == false) {
       var data = JSON.parse(body.msg);
       this.emit('invite', member, data.target);
       this.emit('announce', 'invite', member, data.target);
     } else {
       // you are invited
-      this.emit('invite', member, {id: uid, nickName: "unknown"});
-      this.emit('announce', 'invite', member, {id: uid, nickName: "unknown"});
+      console.log(JSON.stringify(body));
+      this.emit('invite', member, {id: body.senderId, nickName: body.senderNickname});
+      this.emit('announce', 'invite', member, {id: body.senderId, nickName: body.senderNickname});
     }
   } else {
     console.log(JSON.stringify(message));
-  }
+  }*/
+  
 }
 Session.prototype.poll = function () {
   var self = this;
@@ -374,12 +570,18 @@ Session.prototype.poll = function () {
   this.request(this.sessionServerUrl+enums.POLL_URL+'?'+querystring.stringify(param), function (error, response, body) {
     if(error) {
       self.emit('error', error);
-      console.log(error);
+      self.poll();
       return;
     }
     var unpacked = body.slice(body.indexOf('"')+1, body.lastIndexOf('"'));
     var decrypted = enums.base64._utf8_decode(enums.base64.decode(unpacked));
-    self.handlePoll(JSON.parse(decrypted));
+    try {
+      self.handlePoll(JSON.parse(decrypted));
+    } catch (e) {
+      self.emit('error', e);
+      self.poll();
+      console.log(e);
+    }
   });
 }
 Session.prototype.sendCommand = function(command, body, callback) {
@@ -402,10 +604,10 @@ Session.prototype.sendCommand = function(command, body, callback) {
       var message = JSON.parse(body);
       self.emit('command', message);
       if(message.retCode != enums.COMMAND_RESULT_CODE.SUCCESS) {
-        self.emit('error', message.retMsg);
-        if(!!callback) callback(message.retMsg);
+        self.emit('error', {msg: message.retMsg, code: message.retCode});
+        if(!!callback) callback({msg: message.retMsg, code: message.retCode});
       } else {
-        if(!!callback) callback(null, message);
+        if(!!callback) callback(null, message, param);
       }
     } else {
       self.emit('error', error);
@@ -421,19 +623,55 @@ Session.prototype.sendMessage = function(chatRoom, message, callback) {
     msgId: message.id,
     msg: message.message
   };
-  this.sendCommand(enums.COMMAND_TYPE.SendMsg, body, callback);
+  var self = this;
+  this.sendCommand(enums.COMMAND_TYPE.SendMsg, body, function(error, data) {
+    if(error) {
+      if(callback) callback(error, data);
+      return;
+    }
+    message.serial = data.bdy.msgSn;
+    message.time = data.bdy.msgTimeSec;
+    var prevMessage = chatRoom.lastMessage;
+    chatRoom.lastMessage = message;
+    var messageDiff = message.serial - prevMessage.serial;
+    if(messageDiff > 1) {
+      self.requestGetMessage(chatRoom, (prevMessage.serial+1), (message.serial-1), function (error, data) {
+        if(error) {
+          self.emit('error', error);
+          console.log(error);
+          return;
+        }
+        for(var key in data) {
+          var messageItem = data[key];
+          messageItem.cafeId = chatRoom.cafeId;
+          messageItem.roomId = chatRoom.roomId;
+          self.handleNotification(messageItem);
+        }
+        chatRoom.lastMessage = message;
+        if(callback) callback(error, data);
+      });
+      return;
+    }
+    if(callback) callback(error, data);
+  });
 }
 Session.prototype.sendText = function(chatRoom, message, callback) {
-  var data = new Message(chatRoom, enums.MSG_TYPE.Msg, 0, new Date().getTime(), 
-    new Date().getTime(), null, message);
+  var data = new Message(chatRoom, enums.MSG_TYPE.Msg, 0, new Date().getTime()/1000, 
+    new Date().getTime(), this.getMyself(chatRoom), message);
   this.sendMessage(chatRoom, data, callback);
+  return data;
 }
 Session.prototype.sendImage = function(chatRoom, readStream, callback) {
   var self = this;
   var r = this.request.post(enums.UPLOAD_URL + enums.UPLOAD_PIC_URL, function (error, response, body) {
     if(!error) {
       var regex = /\]\)\('([^']+)'\);/;
-      var unpacked = regex.exec(body)[1];
+      var unpacked = regex.exec(body);
+      if(unpacked.length < 2) {
+        callback(new Error('File transfer failed'));
+        return;
+      }
+      unpacked = unpacked[1];
       var data = JSON.parse(unpacked);
       var param = {
         path: data.savedPath,
@@ -442,8 +680,11 @@ Session.prototype.sendImage = function(chatRoom, readStream, callback) {
         height: data.height
       };
       var message = new Message(chatRoom, enums.MSG_TYPE.Image, 0, new Date().getTime(), 
-        new Date().getTime(), null, param);
-      self.sendMessage(chatRoom, message, callback);
+        new Date().getTime(), self.getMyself(chatRoom), param);
+      self.sendMessage(chatRoom, message, function(error, data) {
+        if(!!error && !!callback) callback(error);
+        else if(!!callback) callback(null, message);
+      });
     } else {
       self.emit('error', error);
       if(!!callback) callback(error);
@@ -456,6 +697,7 @@ Session.prototype.sendImage = function(chatRoom, readStream, callback) {
 }
 Session.prototype.sendSticker = function(chatRoom, stickerId, callback) {
   var data = new Message(chatRoom, enums.MSG_TYPE.Sticker, 0, new Date().getTime(), 
-    new Date().getTime(), null, stickerId);
+    new Date().getTime(), this.getMyself(chatRoom), stickerId);
   this.sendMessage(chatRoom, data, callback);
+  return data; 
 }

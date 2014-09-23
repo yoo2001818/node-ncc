@@ -6,14 +6,22 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "Duknam Yoo",
-  "license": "MIT",
-  "repository": {
+  "author": {
+    "name": "Duknam Yoo"
   },
+  "license": "MIT",
+  "repository": {},
   "dependencies": {
     "async": "^0.9.0",
     "request": "^2.42.0",
     "tough-cookie": "^0.12.1",
-    "form-data": "latest"
-  }
+    "form-data": "latest",
+    "keep-alive-agent": "latest"
+  },
+  "readme": "node-ncc\n========\nNaver Cafe Chat library for Node.js\n",
+  "readmeFilename": "README.md",
+  "_id": "node-ncc@0.0.1",
+  "_shasum": "1d318f1644605c37c0fe5e77314fb90db209ba7b",
+  "_resolved": "git://github.com/yoo2001818/node-ncc.git#85c5c6bc5028cdd49a1e1815f565eebc25fcb4f6",
+  "_from": "node-ncc@git://github.com/yoo2001818/node-ncc.git"
 }
