@@ -106,13 +106,12 @@ module.exports.login = function (userID, password, callback) {
       };
       request(options, function (error, response, body) {
         if (!error && response.statusCode == 200) {
-          cookieJar.getCookieString('https://nid.naver.com/', {}, function(err, cookieText) {
-            if(cookieText.indexOf("NID_AUT") != -1) {
-              iCallback(null, cookieJar);
-            } else {
-              iCallback("Invalid ID or password");
-            }
-          });
+          var cookieText = cookieJar.getCookieString('https://nid.naver.com/', {});
+          if(cookieText.indexOf("NID_AUT") != -1) {
+            iCallback(null, cookieJar);
+          } else {
+            iCallback("Invalid ID or password");
+          }
         } else {
           iCallback(error);
         }
@@ -178,7 +177,7 @@ Session.prototype.requestChatRoomList = function (callback) {
         entry.lastMsgTimeSec, entry.lastMsgTimeSec, null, entry.lastMsg);
       room.roomType = entry.roomType;
       room.openType = entry.openType;
-      room.limitMemberCnt = 50; // Hard coded
+      room.limitMemberCnt = 100; // Hard coded
       room.memberCnt = entry.memberCnt;
       room.masterUserId = entry.masterUserId;
       room.updateTimeSec = entry.lastMsgTimeSec;
