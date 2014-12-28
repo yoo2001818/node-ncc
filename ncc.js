@@ -448,6 +448,7 @@ Session.prototype.handleNotification = function (body, cmd) {
       message.data = data;
       message.message = 'Left: '+data.sender.nickName;
       this.emit('announce_message', message);
+      chatRoom.memberList.splice(chatRoom.memberList.indexOf(member), 1);
     }
     if(message.type == enums.MSG_TYPE.JoinRoom) {
       var data = JSON.parse(message.message);
