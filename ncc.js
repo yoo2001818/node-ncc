@@ -466,9 +466,9 @@ Session.prototype.handleNotification = function (body, cmd) {
     if(message.type == enums.MSG_TYPE.ChangeMasterId) {
       var data = JSON.parse(message.message);
       message.data = data;
-      message.message = 'Master Change: '+data.actionItem.nickName;
+      message.message = 'Master Change: '+data.actionItem;
       this.emit('announce_message', message);
-      chatRoom.masterUserId = data.actionItem.id;
+      chatRoom.masterUserId = chatRoom.getMemberByName(data.actionItem).id;
     }
     if(message.type == enums.MSG_TYPE.RejectMember) {
       var data = JSON.parse(message.message);
