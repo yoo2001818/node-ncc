@@ -475,10 +475,11 @@ Session.prototype.handleNotification = function (body, cmd) {
       message.data = data;
       message.message = 'Blocked: '+data.actionItem.nickName;
       this.emit('announce_message', message);
+      chatRoom.memberList.splice(chatRoom.memberList.indexOf(chatRoom.getMemberById(data.actionItem.memberId)), 1);
     }
     if(message.type == enums.MSG_TYPE.OpenRoomCreateGreeting) {
-      console.log(JSON.stringify(body));
-      // todo
+      message.message = 'Created chatroom';
+      this.emit('announce_message', message);
     }
     this.emit('all_message', message);
   } else if(cmd == enums.NOTI_TYPE.ClosedOpenroom) {
