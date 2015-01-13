@@ -650,14 +650,44 @@ Session.prototype.sendMessage = function(chatRoom, message, callback) {
         }
         chatRoom.lastMessage = message;
         if(callback) callback(error, data);
+        message.sent = true;
+        if(message.type == enums.MSG_TYPE.Normal) {
+          self.emit('text_message_sent', message);
+        }
+        if(message.type == enums.MSG_TYPE.Image) {
+          var data = JSON.parse(message.message);
+          message.data = data;
+          message.message = 'Image: '+data.orgUrl;
+          self.emit('image_message_sent', message);
+        }
+        if(message.type == enums.MSG_TYPE.Sticker) {
+          var data = JSON.parse(message.message);
+          message.data = data;
+          message.message = 'Sticker: '+data.stickerId;
+          self.emit('sticker_message_sent', message);
+        }
+        self.emit('all_message_sent', message);
       });
       return;
     }
     if(callback) callback(error, data);
+    message.sent = true;
+    if(message.type == enums.MSG_TYPE.Normal) {
+      self.emit('text_message_sent', message);
+    }
+    if(message.type == enums.MSG_TYPE.Image) {
+      message.message = 'Image: '+message.data.orgUrl;
+      self.emit('image_message_sent', message);
+    }
+    if(message.type == enums.MSG_TYPE.Sticker) {
+      message.message = 'Sticker: '+message.data.stickerId;
+      self.emit('sticker_message_sent', message);
+    }
+    self.emit('all_message_sent', message);
   });
 }
 Session.prototype.sendText = function(chatRoom, message, callback) {
-  var data = new Message(chatRoom, enums.MSG_TYPE.Msg, 0, new Date().getTime()/1000, 
+  var data = new Message(chatRoom, enums.MSG_TYPE.Normal, 0, new Date().getTime()/1000, 
     new Date().getTime(), this.getMyself(chatRoom), message);
   this.sendMessage(chatRoom, data, callback);
   return data;
