@@ -634,6 +634,10 @@ Session.prototype.sendMessage = function(chatRoom, message, callback) {
     message.time = data.bdy.msgTimeSec;
     var prevMessage = chatRoom.lastMessage;
     chatRoom.lastMessage = message;
+    var newMessage = message.constructor();
+    for(var attr in message) {
+      if(message.hasOwnProperty(attr)) newMessage[attr] = message[attr];
+    }
     var messageDiff = message.serial - prevMessage.serial;
     if(messageDiff > 1) {
       self.requestGetMessage(chatRoom, (prevMessage.serial+1), (message.serial-1), function (error, data) {
@@ -650,40 +654,40 @@ Session.prototype.sendMessage = function(chatRoom, message, callback) {
         }
         chatRoom.lastMessage = message;
         if(callback) callback(error, data);
-        message.sent = true;
-        if(message.type == enums.MSG_TYPE.Normal) {
-          self.emit('text_message_sent', message);
+        newMessage.sent = true;
+        if(newMessage.type == enums.MSG_TYPE.Normal) {
+          self.emit('text_message_sent', newMessage);
         }
-        if(message.type == enums.MSG_TYPE.Image) {
-          message.data = message.message;
-          message.message = 'Image: '+message.data.path;
-          self.emit('image_message_sent', message);
+        if(newMessage.type == enums.MSG_TYPE.Image) {
+          newMessage.data = newMessage.message;
+          newMessage.message = 'Image: '+newMessage.data.path;
+          self.emit('image_message_sent', newMessage);
         }
-        if(message.type == enums.MSG_TYPE.Sticker) {
-          message.data = message.message;
-          message.message = 'Sticker: '+message.data;
-          self.emit('sticker_message_sent', message);
+        if(newMessage.type == enums.MSG_TYPE.Sticker) {
+          newMessage.data = newMessage.message;
+          newMessage.message = 'Sticker: '+newMessage.data;
+          self.emit('sticker_message_sent', newMessage);
         }
-        self.emit('all_message_sent', message);
+        self.emit('all_message_sent', newMessage);
       });
       return;
     }
     if(callback) callback(error, data);
-    message.sent = true;
-    if(message.type == enums.MSG_TYPE.Normal) {
-      self.emit('text_message_sent', message);
+    newMessage.sent = true;
+    if(newMessage.type == enums.MSG_TYPE.Normal) {
+      self.emit('text_message_sent', newMessage);
     }
-    if(message.type == enums.MSG_TYPE.Image) {
-      message.data = message.message;
-      message.message = 'Image: '+message.data.path;
-      self.emit('image_message_sent', message);
+    if(newMessage.type == enums.MSG_TYPE.Image) {
+      newMessage.data = message.message;
+      newMessage.message = 'Image: '+newMessage.data.path;
+      self.emit('image_message_sent', newMessage);
     }
-    if(message.type == enums.MSG_TYPE.Sticker) {
-      message.data = message.message;
-      message.message = 'Sticker: '+message.data;
-      self.emit('sticker_message_sent', message);
+    if(newMessage.type == enums.MSG_TYPE.Sticker) {
+      newMessage.data = newMessage.message;
+      newMessage.message = 'Sticker: '+newMessage.data;
+      self.emit('sticker_message_sent', newMessage);
     }
-    self.emit('all_message_sent', message);
+    self.emit('all_message_sent', newMessage);
   });
 }
 Session.prototype.sendText = function(chatRoom, message, callback) {
