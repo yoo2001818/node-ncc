@@ -655,11 +655,13 @@ Session.prototype.sendMessage = function(chatRoom, message, callback) {
           self.emit('text_message_sent', message);
         }
         if(message.type == enums.MSG_TYPE.Image) {
+          message.data = message.message;
           message.message = 'Image: '+message.data.path;
           self.emit('image_message_sent', message);
         }
         if(message.type == enums.MSG_TYPE.Sticker) {
-          message.message = 'Sticker: '+message.stickerId;
+          message.data = message.message;
+          message.message = 'Sticker: '+message.data;
           self.emit('sticker_message_sent', message);
         }
         self.emit('all_message_sent', message);
@@ -672,11 +674,13 @@ Session.prototype.sendMessage = function(chatRoom, message, callback) {
       self.emit('text_message_sent', message);
     }
     if(message.type == enums.MSG_TYPE.Image) {
+      message.data = message.message;
       message.message = 'Image: '+message.data.path;
       self.emit('image_message_sent', message);
     }
     if(message.type == enums.MSG_TYPE.Sticker) {
-      message.message = 'Sticker: '+message.stickerId;
+      message.data = message.message;
+      message.message = 'Sticker: '+message.data;
       self.emit('sticker_message_sent', message);
     }
     self.emit('all_message_sent', message);
