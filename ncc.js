@@ -634,7 +634,8 @@ Session.prototype.sendMessage = function(chatRoom, message, callback) {
     message.time = data.bdy.msgTimeSec;
     var prevMessage = chatRoom.lastMessage;
     chatRoom.lastMessage = message;
-    var newMessage = message.constructor();
+    var newMessage = new Message(message.chatRoom, message.type, message.serial, message.time,
+    message.id, message.sender, message.message);
     for(var attr in message) {
       if(message.hasOwnProperty(attr)) newMessage[attr] = message[attr];
     }
