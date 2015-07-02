@@ -335,6 +335,7 @@ Session.prototype.requestDeleteRoom = function (chatRoom, callback) {
   });
 }
 Session.prototype.getMyself = function (chatRoom) {
+  if(chatRoom == null) return null;
   return chatRoom.getMemberById(this.uid);
 }
 Session.prototype.connect = function (callback) {
@@ -624,6 +625,8 @@ Session.prototype.sendMessage = function(chatRoom, message, callback) {
     msgId: message.id,
     msg: message.message
   };
+  message.chatRoom = chatRoom;
+  message.sender = this.getMyself(chatRoom);
   var self = this;
   this.sendCommand(enums.COMMAND_TYPE.SendMsg, body, function(error, data) {
     if(error) {
@@ -697,7 +700,11 @@ Session.prototype.sendText = function(chatRoom, message, callback) {
   this.sendMessage(chatRoom, data, callback);
   return data;
 }
-Session.prototype.sendImage = function(chatRoom, readStream, callback) {
+Session.prototype.sendImage = function(chatRoom, readStream, options, callback) {
+  if(typeof options == 'function') {
+    callback = options;
+    options = null;
+  }
   var self = this;
   var r = this.request.post(enums.UPLOAD_URL + enums.UPLOAD_PIC_URL, function (error, response, body) {
     if(!error) {
@@ -717,17 +724,21 @@ Session.prototype.sendImage = function(chatRoom, readStream, callback) {
       };
       var message = new Message(chatRoom, enums.MSG_TYPE.Image, 0, new Date().getTime(), 
         new Date().getTime(), self.getMyself(chatRoom), param);
-      self.sendMessage(chatRoom, message, function(error, data) {
-        if(!!error && !!callback) callback(error);
-        else if(!!callback) callback(null, message);
-      });
+      if(chatRoom) {
+        self.sendMessage(chatRoom, message, function(error, data) {
+          if(!!error && !!callback) callback(error);
+          else if(!!callback) callback(null, message);
+        });
+      } else {
+        callback(null, message);
+      }
     } else {
       self.emit('error', error);
       if(!!callback) callback(error);
     }
   });
   var form = r.form();
-  form.append('photo', readStream);
+  form.append('photo', readStream, options);
   form.append('callback', '/html/AttachImageDummyCallback.html');
   form.append('callback_func', 'tmpFrame_'+(Math.floor(Math.random()*9000)+1000)+'_func');
 }
